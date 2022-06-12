@@ -259,7 +259,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 	// record other channels.
 	currentChannel := manager.CurrentChannelID()
 	if currentChannel == nil {
-		logger.Debug("rejecting request as bot is not connected to the voice channel")
+		logger.Info("rejecting request as bot is not connected to the voice channel")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ Bot is not connected to any voice channel."},
@@ -268,7 +268,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 
 	member := i.Member
 	if member == nil {
-		logger.Debug("rejecting request as it is not a guild message")
+		logger.Info("rejecting request as it is not a guild message")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ Can only be invoked in a server."},
@@ -288,7 +288,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 		zap.Bool("user_bot", user.Bot),
 	)
 	if user.Bot {
-		logger.Debug("discarding request as it was made by a bot")
+		logger.Info("discarding request as it was made by a bot")
 		return nil
 	}
 
@@ -298,7 +298,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 	}
 
 	if !inVoiceChannel {
-		logger.Debug("rejecting request as the user is not in same the voice channel as the bot")
+		logger.Info("rejecting request as the user is not in same the voice channel as the bot")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ You are not in the voice channel."},
@@ -332,6 +332,6 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 		return fmt.Errorf("could not create replay: %w", err)
 	}
 
-	logger.Debug("created replay")
+	logger.Info("created replay")
 	return nil
 }
