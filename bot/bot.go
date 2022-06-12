@@ -240,13 +240,12 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, i *discordgo.Interact
 	}
 
 	err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Content: "✅"},
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 	if err != nil {
 		return fmt.Errorf("could not respond to interaction: %w", err)
 	}
 
 	b.logger.Debug("creating replay", zap.Duration("duration", duration))
-	return b.replayCmd.Run(ctx, duration)
+	return b.replayCmd.Run(ctx, duration, i.Interaction)
 }

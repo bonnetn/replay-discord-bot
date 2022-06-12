@@ -29,7 +29,7 @@ func NewReplay(logger *zap.Logger, creator *replayfile.Creator, session *discord
 	}
 }
 
-func (r *Replay) Run(ctx context.Context, duration time.Duration) error {
+func (r *Replay) Run(ctx context.Context, duration time.Duration, i *discordgo.Interaction) error {
 	var path string
 	defer func() {
 		if err := os.Remove(path); err != nil {
@@ -46,7 +46,8 @@ func (r *Replay) Run(ctx context.Context, duration time.Duration) error {
 
 	err = r.creator.Create(ctx, r.audioBuffer, path, duration)
 	if err == replayfile.NoAudioDataErr {
-		if _, err := r.session.ChannelMessageSend(r.resultChannel, "No audio data..."); err != nil {
+		_, err = r.session.InteractionResponseEdit(i, &discordgo.WebhookEdit{Content: "No audio data."})
+		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
 		return nil
@@ -65,14 +66,15 @@ func (r *Replay) Run(ctx context.Context, duration time.Duration) error {
 		}
 	}()
 
-	msg := discordgo.MessageSend{
+	_, err = r.session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+		Content: fmt.Sprintf("Last %d seconds.", int(duration.Seconds())),
 		Files: []*discordgo.File{{
 			Name:        fmt.Sprintf("recording-%s.ogg", time.Now().Format(time.RFC3339)),
 			ContentType: "audio/ogg; codecs=opus",
 			Reader:      f,
 		}},
-	}
-	if _, err := r.session.ChannelMessageSendComplex(r.resultChannel, &msg); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
