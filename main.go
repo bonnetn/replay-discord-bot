@@ -23,11 +23,19 @@ const (
 	DEVELOPMENT      = "DEVELOPMENT"
 )
 
+// Required permissions:
+// * bot
+// * applications.commands
+// * Send Messages
+// * Attach Files
+// * Connect
+
 func run() error {
 	token, err := getEnvVar(DISCORD_TOKEN)
 	if err != nil {
 		return err
 	}
+
 	guildID, err := getEnvVar(DISCORD_GUILD_ID)
 	if err != nil {
 		return err
@@ -58,14 +66,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("could not create logger: %w", err)
 	}
-
-	const inviteURL = "https://discord.com/api/oauth2/authorize?client_id=982959654852251658&permissions=1083392&scope=bot%20applications.commands"
-	// bot
-	// applications.commands
-	// Send Messages
-	// Attach Files
-	// Connect
-	logger.Info("invite the bot to your server", zap.String("url", inviteURL))
 
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
