@@ -81,7 +81,7 @@ func (b *Bot) withHandlersRegistered(ctx context.Context, manager *voicechannel.
 
 	b.logger.Debug("registering handlers")
 	removeInteractionUpdate := b.session.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) {
-		err := b.handleInteractionCreate(ctx, i)
+		err := b.handleInteractionCreate(ctx, manager, i)
 		if err != nil {
 			b.logger.Error("could not handle interaction create", zap.Error(err))
 		}
@@ -211,7 +211,22 @@ func (b *Bot) findChannelToJoin() (*string, error) {
 	}
 	return result, nil
 }
-func (b *Bot) handleInteractionCreate(ctx context.Context, i *discordgo.InteractionCreate) error {
+
+func (b *Bot) isInVoiceChannel(voiceChannelID, userID string) (bool, error) {
+	guild, err := b.session.State.Guild(b.guildID)
+	if err != nil {
+		return false, fmt.Errorf("could not fetch guild: %w", err)
+	}
+
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == voiceChannelID && vs.UserID == userID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate) error {
 	if i.GuildID != b.guildID {
 		return nil
 	}
@@ -223,6 +238,41 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, i *discordgo.Interact
 
 	if b.replayCommandID != nil && data.ID != *b.replayCommandID {
 		return fmt.Errorf("unknown interaction: %q", data.Name)
+	}
+
+	// A user should not be able to ask for a replay if they are not in the channel.
+	// NOTE: There is a race condition: the channel may change while we are checking if the user is in it.
+	// But this is fine as the audio buffer is cleaned every time the channel is changed so the user may use this to
+	// record other channels.
+	currentChannel := manager.CurrentChannelID()
+	if currentChannel == nil {
+		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{Content: "❌ Bot is not connected to any voice channel."},
+		})
+	}
+
+	if i.Member == nil {
+		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{Content: "❌ Can only be invoked in a server."},
+		})
+	}
+
+	if i.Member.User == nil {
+		return errors.New("user is nil")
+	}
+
+	inVoiceChannel, err := b.isInVoiceChannel(*currentChannel, i.Member.User.ID)
+	if err != nil {
+		return fmt.Errorf("could not check if bot is in voice channel of the user: %w", err)
+	}
+
+	if !inVoiceChannel {
+		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{Content: "❌ You are not in the voice channel."},
+		})
 	}
 
 	duration := defaultDuration
@@ -239,7 +289,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, i *discordgo.Interact
 		}
 	}
 
-	err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 	if err != nil {

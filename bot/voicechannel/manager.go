@@ -7,17 +7,19 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+	"sync"
 	"time"
 )
 
 type Manager struct {
+	sync.RWMutex
 	logger             *zap.Logger
 	guildID            string
 	session            *discordgo.Session
 	audioBuffer        *circular.Buffer
-	currentChannel     *discordgo.VoiceConnection
 	voiceChannelToJoin chan *string
 	stopListenersCh    chan struct{}
+	currentChannel     *discordgo.VoiceConnection
 }
 
 type ManagerFactory = func(context.Context, func(*Manager) error) error
@@ -70,6 +72,9 @@ func (m *Manager) run(ctx context.Context) error {
 }
 
 func (m *Manager) handleJoinRequest(channelID *string) error {
+	m.Lock()
+	defer m.Unlock()
+
 	m.logger.Debug("request to join a voice channel received", zap.Stringp("channel", channelID))
 	if channelID != nil {
 		if m.currentChannel == nil {
@@ -173,4 +178,15 @@ func (m *Manager) cleanupVoiceChannel() {
 			zap.Error(err),
 		)
 	}
+}
+
+func (m *Manager) CurrentChannelID() *string {
+	m.RLock()
+	defer m.RUnlock()
+
+	if m.currentChannel == nil {
+		return nil
+	}
+	v := m.currentChannel.ChannelID
+	return &v
 }
