@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"go.uber.org/zap"
-	_ "go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"time"
 )
