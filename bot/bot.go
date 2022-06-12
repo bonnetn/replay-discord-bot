@@ -227,7 +227,16 @@ func (b *Bot) isInVoiceChannel(voiceChannelID, userID string) (bool, error) {
 }
 
 func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate) error {
+	logger := b.logger.With(
+		zap.String("interaction_id", i.ID),
+		zap.Uint8("interaction_type", uint8(i.Type)),
+		zap.String("guild_id", i.GuildID),
+		zap.String("channel_id", i.ChannelID),
+	)
+
+	logger.Debug("received interaction create")
 	if i.GuildID != b.guildID {
+		logger.Debug("interaction from wrong guild discarded")
 		return nil
 	}
 
@@ -236,6 +245,10 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 		return fmt.Errorf("wrong interaction data type: %T", i.Data)
 	}
 
+	logger = logger.With(
+		zap.String("interaction_data_id", data.ID),
+		zap.String("interaction_data_name", data.Name),
+	)
 	if b.replayCommandID != nil && data.ID != *b.replayCommandID {
 		return fmt.Errorf("unknown interaction: %q", data.Name)
 	}
@@ -246,29 +259,46 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 	// record other channels.
 	currentChannel := manager.CurrentChannelID()
 	if currentChannel == nil {
+		logger.Debug("rejecting request as bot is not connected to the voice channel")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ Bot is not connected to any voice channel."},
 		})
 	}
 
-	if i.Member == nil {
+	member := i.Member
+	if member == nil {
+		logger.Debug("rejecting request as it is not a guild message")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ Can only be invoked in a server."},
 		})
 	}
+	logger = logger.With(zap.String("member_nick", member.Nick))
 
-	if i.Member.User == nil {
+	user := member.User
+	if user == nil {
 		return errors.New("user is nil")
 	}
 
-	inVoiceChannel, err := b.isInVoiceChannel(*currentChannel, i.Member.User.ID)
+	logger = logger.With(
+		zap.String("user_id", user.ID),
+		zap.String("user_username", user.Username),
+		zap.String("user_discriminator", user.Discriminator),
+		zap.Bool("user_bot", user.Bot),
+	)
+	if user.Bot {
+		logger.Debug("discarding request as it was made by a bot")
+		return nil
+	}
+
+	inVoiceChannel, err := b.isInVoiceChannel(*currentChannel, user.ID)
 	if err != nil {
 		return fmt.Errorf("could not check if bot is in voice channel of the user: %w", err)
 	}
 
 	if !inVoiceChannel {
+		logger.Debug("rejecting request as the user is not in same the voice channel as the bot")
 		return b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ You are not in the voice channel."},
@@ -288,6 +318,7 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 			duration = maxDuration
 		}
 	}
+	logger = logger.With(zap.Duration("duration", duration))
 
 	err = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -296,6 +327,11 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 		return fmt.Errorf("could not respond to interaction: %w", err)
 	}
 
-	b.logger.Debug("creating replay", zap.Duration("duration", duration))
-	return b.replayCmd.Run(ctx, duration, i.Interaction)
+	err = b.replayCmd.Run(ctx, duration, i.Interaction)
+	if err != nil {
+		return fmt.Errorf("could not create replay: %w", err)
+	}
+
+	logger.Debug("created replay")
+	return nil
 }
