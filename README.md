@@ -66,8 +66,7 @@ $ DISCORD_TOKEN=mytoken DISCORD_GUILD_ID=123 DISCORD_CHANNEL=123 DEVELOPMENT=tru
 
 ##### Option 2: Using docker
 ```sh
-$ docker build -t replaybot .
-$ docker run -it --rm -e 'DISCORD_TOKEN=mytoken' -e 'DISCORD_GUILD_ID=123' -e 'DISCORD_CHANNEL=123' -e 'DEVELOPMENT=true' replaybot
+$ docker run -it --rm -e 'DISCORD_TOKEN=mytoken' -e 'DISCORD_GUILD_ID=123' -e 'DISCORD_CHANNEL=123' -e 'DEVELOPMENT=true' ghcr.io/bonnetn/replay-discord-bot:main
 ```
 
 _NOTE: `DEVELOPMENT=true` makes the logging a bit more friendly to human._
