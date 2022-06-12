@@ -144,7 +144,7 @@ func (b *Bot) withApplicationCommand(cb func() error) error {
 	userID := b.session.State.User.ID
 
 	b.logger.Debug("creating discord application command")
-	minValue := float64(1)
+	minValue := float64(2)
 	cmd, err := b.session.ApplicationCommandCreate(userID, b.guildID, &discordgo.ApplicationCommand{
 		Name:        "replay",
 		Description: "Save the last minute",
