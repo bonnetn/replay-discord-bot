@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	DISCORD_TOKEN    = "DISCORD_TOKEN"
-	DISCORD_GUILD_ID = "DISCORD_GUILD_ID"
-	DISCORD_CHANNEL  = "DISCORD_CHANNEL"
-	DEVELOPMENT      = "DEVELOPMENT"
+	DiscordToken   = "DISCORD_TOKEN"
+	DiscordGuildId = "DISCORD_GUILD_ID"
+	DiscordChannel = "DISCORD_CHANNEL"
+	Development    = "DEVELOPMENT"
 )
 
 // Required permissions:
@@ -31,23 +31,23 @@ const (
 // * Connect
 
 func run() error {
-	token, err := getEnvVar(DISCORD_TOKEN)
+	token, err := getEnvVar(DiscordToken)
 	if err != nil {
 		return err
 	}
 
-	guildID, err := getEnvVar(DISCORD_GUILD_ID)
+	guildID, err := getEnvVar(DiscordGuildId)
 	if err != nil {
 		return err
 	}
 
-	channelID, err := getEnvVar(DISCORD_CHANNEL)
+	channelID, err := getEnvVar(DiscordChannel)
 	if err != nil {
 		return err
 	}
 
 	dev := false
-	devStr := os.Getenv(DEVELOPMENT)
+	devStr := os.Getenv(Development)
 	if devStr == "true" {
 		dev = true
 	}
