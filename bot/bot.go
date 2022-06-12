@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	maxDuration     = 30 * time.Second
-	defaultDuration = time.Minute
+	defaultDuration = 30 * time.Second
+	maxDuration     = time.Minute
 )
 
 type Bot struct {
