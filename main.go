@@ -23,13 +23,6 @@ const (
 	Development    = "DEVELOPMENT"
 )
 
-// Required permissions:
-// * bot
-// * applications.commands
-// * Send Messages
-// * Attach Files
-// * Connect
-
 func run() error {
 	token, err := getEnvVar(DiscordToken)
 	if err != nil {
