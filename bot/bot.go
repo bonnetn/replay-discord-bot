@@ -132,6 +132,15 @@ func (b *Bot) withOpenedSession(cb func() error) error {
 }
 
 func (b *Bot) withApplicationCommand(cb func() error) error {
+	if b.session == nil {
+		return errors.New("nil session")
+	}
+	if b.session.State == nil {
+		return errors.New("nil state")
+	}
+	if b.session.State.User == nil {
+		return errors.New("nil user")
+	}
 	userID := b.session.State.User.ID
 
 	b.logger.Debug("creating discord application command")
