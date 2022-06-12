@@ -7,7 +7,6 @@ require (
 	github.com/stretchr/testify v1.7.1
 	go.uber.org/zap v1.21.0
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
-	gopkg.in/hraban/opus.v2 v2.0.0-20220302220929-eeacdbcb92d0
 )
 
 require (
