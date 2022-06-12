@@ -19,7 +19,6 @@ import (
 const (
 	DiscordToken   = "DISCORD_TOKEN"
 	DiscordGuildId = "DISCORD_GUILD_ID"
-	DiscordChannel = "DISCORD_CHANNEL"
 	Development    = "DEVELOPMENT"
 )
 
@@ -30,11 +29,6 @@ func run() error {
 	}
 
 	guildID, err := getEnvVar(DiscordGuildId)
-	if err != nil {
-		return err
-	}
-
-	channelID, err := getEnvVar(DiscordChannel)
 	if err != nil {
 		return err
 	}
@@ -68,7 +62,7 @@ func run() error {
 	var (
 		audioBuffer    = circular.Buffer{}
 		replayCreator  = replayfile.NewCreator(logger, time.Now)
-		replayCmd      = command.NewReplay(logger, replayCreator, session, &audioBuffer, channelID)
+		replayCmd      = command.NewReplay(logger, replayCreator, session, &audioBuffer)
 		managerFactory = voicechannel.NewManagerFactory(logger, guildID, session, &audioBuffer)
 		botInstance    = bot.NewBot(logger, session, guildID, managerFactory, replayCmd)
 	)

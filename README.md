@@ -25,15 +25,6 @@ This bot connects to your discord server (guild), joins the voice channel with t
 ### Running the bot
 
 It requires a few environment variables to be set:
-#### Variable: `DISCORD_CHANNEL`
-> ID of the text channel you want the bot to post the recordings. 
-
-##### To get the ID: 
-1. In discord app, right click on a **text** channel
-2. Click on `Copy identifier`
-
-Example: `123456789123456789`
-
 #### Variable: `DISCORD_GUILD_ID`
 > The discord server (guild) you want your bot to join and listen to.
 
@@ -61,12 +52,12 @@ Example: `ABCDEFGHIJKLMNOPQRSTUVWX.YzAbcD.EfGhIjKlMNoPQRsTuVwXyZaBcDeFGgjaldfa_a
 
 You need **ffmpeg** to be installed and available in your _PATH_.
 ```sh
-$ DISCORD_TOKEN=mytoken DISCORD_GUILD_ID=123 DISCORD_CHANNEL=123 DEVELOPMENT=true run ./main.go
+$ DISCORD_TOKEN=mytoken DISCORD_GUILD_ID=123 DEVELOPMENT=true run ./main.go
 ```
 
 ##### Option 2: Using docker
 ```sh
-$ docker run -it --rm -e 'DISCORD_TOKEN=mytoken' -e 'DISCORD_GUILD_ID=123' -e 'DISCORD_CHANNEL=123' -e 'DEVELOPMENT=true' ghcr.io/bonnetn/replay-discord-bot:main
+$ docker run -it --rm -e 'DISCORD_TOKEN=mytoken' -e 'DISCORD_GUILD_ID=123' -e 'DEVELOPMENT=true' ghcr.io/bonnetn/replay-discord-bot:main
 ```
 
 _NOTE: `DEVELOPMENT=true` makes the logging a bit more friendly to human._

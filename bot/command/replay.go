@@ -12,20 +12,18 @@ import (
 )
 
 type Replay struct {
-	logger        *zap.Logger
-	creator       *replayfile.Creator
-	session       *discordgo.Session
-	audioBuffer   *circular.Buffer
-	resultChannel string
+	logger      *zap.Logger
+	creator     *replayfile.Creator
+	session     *discordgo.Session
+	audioBuffer *circular.Buffer
 }
 
-func NewReplay(logger *zap.Logger, creator *replayfile.Creator, session *discordgo.Session, audioBuffer *circular.Buffer, resultChannel string) *Replay {
+func NewReplay(logger *zap.Logger, creator *replayfile.Creator, session *discordgo.Session, audioBuffer *circular.Buffer) *Replay {
 	return &Replay{
-		logger:        logger,
-		creator:       creator,
-		session:       session,
-		audioBuffer:   audioBuffer,
-		resultChannel: resultChannel,
+		logger:      logger,
+		creator:     creator,
+		session:     session,
+		audioBuffer: audioBuffer,
 	}
 }
 
