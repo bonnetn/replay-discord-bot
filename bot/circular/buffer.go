@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const SIZE = 1024 * 1024 // 1 MiB
+const SIZE = 30 * 60 / 0.02 // 30 minutes of 20ms segments.
 
 // Buffer contains audio packet.
 // Zero value is safe to use and is equivalent to an empty buffer.
