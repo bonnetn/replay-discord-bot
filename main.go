@@ -71,23 +71,6 @@ func run() error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	for {
-		err = runBot(ctx, botInstance, logger)
-		if err != nil && err != panicError {
-			return err
-		}
-	}
-}
-
-var panicError = errors.New("panic")
-
-func runBot(ctx context.Context, botInstance *bot.Bot, logger *zap.Logger) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.DPanic("panicked", zap.Any("reason", r))
-			err = panicError
-		}
-	}()
 	return botInstance.Run(ctx)
 }
 

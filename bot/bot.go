@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"bigbro2/bot/cleanup"
 	"bigbro2/bot/command"
 	"bigbro2/bot/voicechannel"
 	"context"
@@ -17,57 +18,146 @@ const (
 	maxDuration     = time.Minute
 )
 
-type Bot struct {
-	logger          *zap.Logger
-	session         *discordgo.Session
-	guildID         string
-	replayCommandID *string // NOTE: This field will be set once the application command is registered.
-	withManager     voicechannel.ManagerFactory
-	replayCmd       *command.Replay
-}
+type (
+	Bot struct {
+		logger                    *zap.Logger
+		session                   *discordgo.Session
+		guildID                   string
+		createVoiceChannelManager voicechannel.CreateManager
+		replayCmd                 *command.Replay
+	}
+	readyChannel              = <-chan struct{}
+	interactionCreateCallback = func(ctx context.Context, i *discordgo.InteractionCreate) error
+)
 
 func NewBot(
 	logger *zap.Logger,
 	session *discordgo.Session,
 	guildID string,
-	withManager voicechannel.ManagerFactory,
+	withManager voicechannel.CreateManager,
 	replayCmd *command.Replay,
 ) *Bot {
 	return &Bot{
-		session:     session,
-		guildID:     guildID,
-		logger:      logger,
-		withManager: withManager,
-		replayCmd:   replayCmd,
+		session:                   session,
+		guildID:                   guildID,
+		logger:                    logger,
+		createVoiceChannelManager: withManager,
+		replayCmd:                 replayCmd,
 	}
 }
 
 func (b *Bot) Run(ctx context.Context) error {
-	if b.session == nil {
-		return errors.New("session is nil")
+	manager, cleanupManager, err := b.createVoiceChannelManager(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create voice connection manager: %w", err)
+	}
+	defer b.cleanup("voice channel manager", cleanupManager)
+
+	onReadyChan, cleanupOnReadyHandler := b.registerOnReadyHandler()
+	defer b.cleanup("onReady handler", cleanupOnReadyHandler)
+
+	cleanupVoiceStateUpdateHandler := b.registerVoiceStateUpdateHandler(manager)
+	defer b.cleanup("handler", cleanupVoiceStateUpdateHandler)
+
+	cleanupSession, err := b.openDiscordSession()
+	if err != nil {
+		return fmt.Errorf("failed to open session: %w", err)
+	}
+	defer b.cleanup("discord session", cleanupSession)
+
+	replayCommandID, cleanupApplicationCommand, err := b.createReplayCommand()
+	if err != nil {
+		return err
+	}
+	defer b.cleanup("application command", cleanupApplicationCommand)
+
+	cleanupReplayCommandHandler := b.registerInteractionCreateHandler(ctx, func(ctx context.Context, i *discordgo.InteractionCreate) error {
+		if i.ID != replayCommandID {
+			return nil
+		}
+		return b.handleReplayCommand(ctx, manager, i)
+	})
+	defer b.cleanup("replay command handler", cleanupReplayCommandHandler)
+
+	b.waitToBeReady(onReadyChan)
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return b.joinVoiceChannel(manager) })
+	g.Go(func() error {
+		b.logger.Info("bot is running")
+		<-ctx.Done()
+		return nil
+	})
+
+	return g.Wait()
+}
+
+func (b *Bot) registerOnReadyHandler() (readyChannel, cleanup.Func) {
+	onReadyCh := make(chan struct{})
+
+	b.logger.Debug("registering on ready handler")
+	removeReady := b.session.AddHandler(func(_ *discordgo.Session, i *discordgo.Ready) {
+		close(onReadyCh)
+	})
+	cleanupFunc := func() error {
+		b.logger.Debug("unregistering onReady update handler")
+		removeReady()
+		return nil
 	}
 
-	return b.withManager(ctx, func(manager *voicechannel.Manager) error {
-		return b.withHandlersRegistered(ctx, manager, func(onReadyCh <-chan struct{}) error {
-			return b.withOpenedSession(func() error {
-				return b.withApplicationCommand(func() error {
-					b.waitToBeReady(onReadyCh)
+	return onReadyCh, cleanupFunc
+}
 
-					g, ctx := errgroup.WithContext(ctx)
-
-					g.Go(func() error { return b.joinVoiceChannel(manager) })
-
-					g.Go(func() error {
-						b.logger.Info("bot is running")
-						<-ctx.Done()
-						return nil
-					})
-
-					return g.Wait()
-				})
-			})
-		})
+func (b *Bot) registerInteractionCreateHandler(ctx context.Context, cb interactionCreateCallback) cleanup.Func {
+	b.logger.Debug("registering interaction create handler")
+	removeInteractionUpdate := b.session.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) {
+		err := cb(ctx, i)
+		if err != nil {
+			b.logger.Error("could not handle interaction create", zap.Error(err))
+		}
 	})
+	cleanupFunc := func() error {
+		b.logger.Debug("unregistering interaction update handler")
+		removeInteractionUpdate()
+		return nil
+	}
+	return cleanupFunc
+}
+
+func (b *Bot) registerVoiceStateUpdateHandler(manager *voicechannel.Manager) cleanup.Func {
+	b.logger.Debug("registering voice state update handler")
+	removeVoiceStateUpdate := b.session.AddHandler(func(_ *discordgo.Session, u *discordgo.VoiceStateUpdate) {
+		err := b.joinVoiceChannel(manager)
+		if err != nil {
+			b.logger.Error("could not handle voice state update", zap.Error(err))
+		}
+	})
+	cleanupFunc := func() error {
+		b.logger.Debug("unregistering voice state handler")
+		removeVoiceStateUpdate()
+		return nil
+	}
+
+	return cleanupFunc
+}
+
+func (b *Bot) openDiscordSession() (cleanup.Func, error) {
+	b.logger.Debug("opening discord session")
+	b.session.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMembers | discordgo.IntentGuildVoiceStates
+
+	if err := b.session.Open(); err != nil {
+		return nil, fmt.Errorf("could not open discord session: %w", err)
+	}
+
+	cleanupFunc := func() error {
+		b.logger.Debug("closing discord session")
+		if err := b.session.Close(); err != nil {
+			return fmt.Errorf("could not close discord session: %w", err)
+		}
+		return nil
+	}
+
+	return cleanupFunc, nil
 }
 
 func (b *Bot) waitToBeReady(ch <-chan struct{}) {
@@ -76,70 +166,15 @@ func (b *Bot) waitToBeReady(ch <-chan struct{}) {
 	b.logger.Info("discord client is ready")
 }
 
-func (b *Bot) withHandlersRegistered(ctx context.Context, manager *voicechannel.Manager, cb func(<-chan struct{}) error) error {
-	onReadyCh := make(chan struct{})
-
-	b.logger.Debug("registering handlers")
-	removeInteractionUpdate := b.session.AddHandler(func(_ *discordgo.Session, i *discordgo.InteractionCreate) {
-		err := b.handleInteractionCreate(ctx, manager, i)
-		if err != nil {
-			b.logger.Error("could not handle interaction create", zap.Error(err))
-		}
-	})
-	defer func() {
-		b.logger.Debug("unregistering interaction update handler")
-		removeInteractionUpdate()
-	}()
-
-	removeVoiceStateUpdate := b.session.AddHandler(func(_ *discordgo.Session, u *discordgo.VoiceStateUpdate) {
-		err := b.joinVoiceChannel(manager)
-		if err != nil {
-			b.logger.Error("could not handle interaction create", zap.Error(err))
-		}
-	})
-	defer func() {
-		b.logger.Debug("unregistering voice state handler")
-		removeVoiceStateUpdate()
-	}()
-
-	removeReady := b.session.AddHandler(func(_ *discordgo.Session, i *discordgo.Ready) {
-		close(onReadyCh)
-	})
-	defer func() {
-		b.logger.Debug("unregistering onReady update handler")
-		removeReady()
-	}()
-
-	return cb(onReadyCh)
-}
-
-func (b *Bot) withOpenedSession(cb func() error) error {
-	b.logger.Debug("opening discord session")
-	b.session.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMembers | discordgo.IntentGuildVoiceStates
-
-	if err := b.session.Open(); err != nil {
-		return fmt.Errorf("could not open discord session: %w", err)
-	}
-	defer func(session *discordgo.Session) {
-		b.logger.Debug("closing discord session")
-		err := session.Close()
-		if err != nil {
-			b.logger.Error("could not close discord session", zap.Error(err))
-		}
-	}(b.session)
-
-	return cb()
-}
-
-func (b *Bot) withApplicationCommand(cb func() error) error {
+func (b *Bot) createReplayCommand() (string, cleanup.Func, error) {
 	if b.session == nil {
-		return errors.New("nil session")
+		return "", nil, errors.New("nil session")
 	}
 	if b.session.State == nil {
-		return errors.New("nil state")
+		return "", nil, errors.New("nil state")
 	}
 	if b.session.State.User == nil {
-		return errors.New("nil user")
+		return "", nil, errors.New("nil user")
 	}
 	userID := b.session.State.User.ID
 
@@ -158,18 +193,19 @@ func (b *Bot) withApplicationCommand(cb func() error) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("could not register application command: %w", err)
+		return "", nil, fmt.Errorf("could not register application command: %w", err)
 	}
-	defer func() {
-		b.logger.Debug("deleting discord application command")
+	cleanupFunc := func() error {
+		b.logger.Debug("deleting application command", zap.String("id", cmd.ApplicationID))
 		err := b.session.ApplicationCommandDelete(userID, b.guildID, cmd.ID)
 		if err != nil {
 			b.logger.Debug("could not unregister application command", zap.Error(err))
+			return err
 		}
-	}()
+		return nil
+	}
 
-	b.replayCommandID = &cmd.ID
-	return cb()
+	return cmd.ID, cleanupFunc, nil
 }
 
 func (b *Bot) joinVoiceChannel(m *voicechannel.Manager) error {
@@ -226,7 +262,7 @@ func (b *Bot) isInVoiceChannel(voiceChannelID, userID string) (bool, error) {
 	return false, nil
 }
 
-func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate) error {
+func (b *Bot) handleReplayCommand(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate) error {
 	logger := b.logger.With(
 		zap.String("interaction_id", i.ID),
 		zap.Uint8("interaction_type", uint8(i.Type)),
@@ -249,9 +285,6 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 		zap.String("interaction_data_id", data.ID),
 		zap.String("interaction_data_name", data.Name),
 	)
-	if b.replayCommandID != nil && data.ID != *b.replayCommandID {
-		return fmt.Errorf("unknown interaction: %q", data.Name)
-	}
 
 	// A user should not be able to ask for a replay if they are not in the channel.
 	// NOTE: There is a race condition: the channel may change while we are checking if the user is in it.
@@ -334,4 +367,12 @@ func (b *Bot) handleInteractionCreate(ctx context.Context, manager *voicechannel
 
 	logger.Info("created replay")
 	return nil
+}
+
+// cleanup is a helper function to clean up resource and log failures.
+func (b *Bot) cleanup(name string, f cleanup.Func) {
+	err := f()
+	if err != nil {
+		b.logger.Warn(fmt.Sprintf("failed to cleanup %s", name), zap.Error(err))
+	}
 }

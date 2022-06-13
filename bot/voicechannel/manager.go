@@ -2,11 +2,11 @@ package voicechannel
 
 import (
 	"bigbro2/bot/circular"
+	"bigbro2/bot/cleanup"
 	"context"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 	"sync"
 	"time"
 )
@@ -22,10 +22,10 @@ type Manager struct {
 	currentChannel     *discordgo.VoiceConnection
 }
 
-type ManagerFactory = func(context.Context, func(*Manager) error) error
+type CreateManager = func(context.Context) (*Manager, cleanup.Func, error)
 
-func NewManagerFactory(logger *zap.Logger, guildID string, session *discordgo.Session, audioBuffer *circular.Buffer) ManagerFactory {
-	return func(ctx context.Context, cb func(*Manager) error) error {
+func NewManagerFactory(logger *zap.Logger, guildID string, session *discordgo.Session, audioBuffer *circular.Buffer) CreateManager {
+	return func(ctx context.Context) (*Manager, cleanup.Func, error) {
 		m := &Manager{
 			logger:             logger,
 			guildID:            guildID,
@@ -35,11 +35,21 @@ func NewManagerFactory(logger *zap.Logger, guildID string, session *discordgo.Se
 			voiceChannelToJoin: make(chan *string),
 		}
 
-		g, ctx := errgroup.WithContext(ctx)
-		g.Go(func() error { return m.run(ctx) }) // TODO: This will not stop when cb returns.
-		g.Go(func() error { return cb(m) })
+		doneCh := make(chan struct{})
 
-		return g.Wait()
+		go func() {
+			err := m.run(doneCh)
+			if err != nil {
+				logger.Panic("voice channel manager failed", zap.Error(err))
+			}
+		}()
+
+		cleanupFunc := func() error {
+			close(doneCh)
+			return nil
+		}
+
+		return m, cleanupFunc, nil
 	}
 }
 
@@ -48,13 +58,13 @@ func (m *Manager) JoinChannel(channelID *string) {
 	m.voiceChannelToJoin <- channelID
 }
 
-func (m *Manager) run(ctx context.Context) error {
+func (m *Manager) run(doneCh <-chan struct{}) error {
 	defer m.cleanupVoiceChannel()
 
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-doneCh:
+			return nil
 
 		case channelID := <-m.voiceChannelToJoin:
 			err := m.handleJoinRequest(channelID)
