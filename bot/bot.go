@@ -57,7 +57,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	defer b.cleanup("onReady handler", cleanupOnReadyHandler)
 
 	cleanupVoiceStateUpdateHandler := b.registerVoiceStateUpdateHandler(manager)
-	defer b.cleanup("handler", cleanupVoiceStateUpdateHandler)
+	defer b.cleanup("voiceStatusUpdate handler", cleanupVoiceStateUpdateHandler)
 
 	cleanupSession, err := b.openDiscordSession()
 	if err != nil {
