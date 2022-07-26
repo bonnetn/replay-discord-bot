@@ -65,6 +65,8 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 	defer b.cleanup("discord session", cleanupSession)
 
+	b.waitToBeReady(onReadyChan)
+
 	replayCommandID, cleanupApplicationCommand, err := b.createReplayCommand()
 	if err != nil {
 		return err
@@ -72,14 +74,18 @@ func (b *Bot) Run(ctx context.Context) error {
 	defer b.cleanup("application command", cleanupApplicationCommand)
 
 	cleanupReplayCommandHandler := b.registerInteractionCreateHandler(ctx, func(ctx context.Context, i *discordgo.InteractionCreate) error {
-		if i.ID != replayCommandID {
+		data, ok := i.Data.(discordgo.ApplicationCommandInteractionData)
+		if !ok {
+			b.logger.Debug("unexpected_interaction_create_data_type", zap.String("type", fmt.Sprintf("%T", i.Data)))
 			return nil
 		}
-		return b.handleReplayCommand(ctx, manager, i)
+		if data.ID != replayCommandID {
+			b.logger.Debug("interaction_command_id_unknown", zap.String("id", data.ID))
+			return nil
+		}
+		return b.handleReplayCommand(ctx, manager, i, data)
 	})
 	defer b.cleanup("replay command handler", cleanupReplayCommandHandler)
-
-	b.waitToBeReady(onReadyChan)
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return b.joinVoiceChannel(manager) })
@@ -205,6 +211,7 @@ func (b *Bot) createReplayCommand() (string, cleanup.Func, error) {
 		return nil
 	}
 
+	b.logger.Debug("created discord application command", zap.String("id", cmd.ID))
 	return cmd.ID, cleanupFunc, nil
 }
 
@@ -262,7 +269,7 @@ func (b *Bot) isInVoiceChannel(voiceChannelID, userID string) (bool, error) {
 	return false, nil
 }
 
-func (b *Bot) handleReplayCommand(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate) error {
+func (b *Bot) handleReplayCommand(ctx context.Context, manager *voicechannel.Manager, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) error {
 	logger := b.logger.With(
 		zap.String("interaction_id", i.ID),
 		zap.Uint8("interaction_type", uint8(i.Type)),
@@ -274,11 +281,6 @@ func (b *Bot) handleReplayCommand(ctx context.Context, manager *voicechannel.Man
 	if i.GuildID != b.guildID {
 		logger.Debug("interaction from wrong guild discarded")
 		return nil
-	}
-
-	data, ok := i.Data.(discordgo.ApplicationCommandInteractionData)
-	if !ok {
-		return fmt.Errorf("wrong interaction data type: %T", i.Data)
 	}
 
 	logger = logger.With(
