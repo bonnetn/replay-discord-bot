@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
 	"time"
@@ -46,7 +47,18 @@ func run() error {
 		}
 	} else {
 		loggerFunc = func() (*zap.Logger, error) {
-			return zap.NewProduction()
+			return zap.Config{
+				Level:       zap.NewAtomicLevelAt(zap.DebugLevel),
+				Development: false,
+				Sampling: &zap.SamplingConfig{
+					Initial:    100,
+					Thereafter: 100,
+				},
+				Encoding:         "json",
+				EncoderConfig:    zap.NewProductionEncoderConfig(),
+				OutputPaths:      []string{"stderr"},
+				ErrorOutputPaths: []string{"stderr"},
+			}.Build()
 		}
 	}
 	logger, err := loggerFunc()
@@ -54,10 +66,34 @@ func run() error {
 		return fmt.Errorf("could not create logger: %w", err)
 	}
 
+	discordgo.Logger = func(msgL, caller int, format string, a ...interface{}) {
+		var level zapcore.Level
+		switch msgL {
+		case discordgo.LogError:
+			level = zap.ErrorLevel
+		case discordgo.LogWarning:
+			level = zap.WarnLevel
+		case discordgo.LogInformational:
+			level = zap.InfoLevel
+		case discordgo.LogDebug:
+			level = zap.DebugLevel
+		default:
+			panic("unknown log level")
+		}
+
+		if ce := logger.Check(level, "discord_go"); ce != nil {
+			ce.Write(zap.String("message", fmt.Sprintf(format, a...)))
+		}
+
+	}
+
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return fmt.Errorf("could not instantiate discord client: %w", err)
 	}
+
+	session.LogLevel = discordgo.LogDebug
+	session.ShouldReconnectOnError = true
 
 	var (
 		audioBuffer    = circular.Buffer{}
