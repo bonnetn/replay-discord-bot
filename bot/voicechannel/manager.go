@@ -19,7 +19,6 @@ type Manager struct {
 	audioBuffer        *circular.Buffer
 	voiceChannelToJoin chan *string
 	stopListenersCh    chan struct{}
-	currentChannel     *discordgo.VoiceConnection
 }
 
 type CreateManager = func(context.Context) (*Manager, cleanup.Func, error)
@@ -31,7 +30,6 @@ func NewManagerFactory(logger *zap.Logger, guildID string, session *discordgo.Se
 			guildID:            guildID,
 			session:            session,
 			audioBuffer:        audioBuffer,
-			currentChannel:     nil,
 			voiceChannelToJoin: make(chan *string),
 		}
 
@@ -80,14 +78,39 @@ func (m *Manager) run(doneCh <-chan struct{}) error {
 		}
 	}
 }
+func (m *Manager) CurrentChannel() *discordgo.VoiceConnection {
+	m.session.RLock()
+	defer m.session.RUnlock()
+
+	voice, _ := m.session.VoiceConnections[m.guildID]
+	if voice == nil {
+		return nil
+	}
+
+	return voice
+}
+
+func (m *Manager) CurrentChannelID() *string {
+	voice := m.CurrentChannel()
+	if voice == nil {
+		return nil
+	}
+
+	voice.RLock()
+	defer voice.RUnlock()
+
+	channelID := voice.ChannelID
+	return &channelID
+}
 
 func (m *Manager) handleJoinRequest(channelID *string) error {
+
 	m.Lock()
 	defer m.Unlock()
 
 	m.logger.Debug("request to join a voice channel received", zap.Stringp("channel", channelID))
 	if channelID != nil {
-		if m.currentChannel == nil {
+		if m.CurrentChannelID() == nil {
 			return m.connectToNewVoiceChannel(*channelID)
 		} else {
 			return m.changeChannel(*channelID)
@@ -108,7 +131,6 @@ func (m *Manager) connectToNewVoiceChannel(channelID string) error {
 	if err != nil {
 		return fmt.Errorf("could not join voice channel: %w", err)
 	}
-	m.currentChannel = c
 
 	m.logger.Debug("bot joined the voice channel")
 
@@ -130,7 +152,9 @@ func (m *Manager) connectToNewVoiceChannel(channelID string) error {
 
 func (m *Manager) changeChannel(channelID string) error {
 	logger := m.logger.With(zap.String("channel", channelID))
-	if m.currentChannel.ChannelID == channelID {
+	chanID := m.CurrentChannelID()
+
+	if chanID != nil && *chanID == channelID {
 		logger.Debug("bot is already in the voice channel")
 		return nil
 	}
@@ -141,7 +165,7 @@ func (m *Manager) changeChannel(channelID string) error {
 	m.audioBuffer.Reset()
 
 	// Move the bot.
-	err := m.currentChannel.ChangeChannel(channelID, true, false)
+	err := m.CurrentChannel().ChangeChannel(channelID, true, false)
 	if err != nil {
 		return fmt.Errorf("could not change voice channel: %w", err)
 	}
@@ -150,7 +174,7 @@ func (m *Manager) changeChannel(channelID string) error {
 }
 
 func (m *Manager) disconnectFromChannel() error {
-	if m.currentChannel == nil {
+	if m.CurrentChannel() == nil {
 		m.logger.Debug("bot is already disconnected from voice channel")
 		return nil
 	}
@@ -162,41 +186,29 @@ func (m *Manager) disconnectFromChannel() error {
 	m.stopListenersCh = nil
 
 	// Disconnect from actual channel.
-	if err := m.currentChannel.Disconnect(); err != nil {
+	if err := m.CurrentChannel().Disconnect(); err != nil {
 		return fmt.Errorf("could not disconnect from channel: %w", err)
 	}
-	m.currentChannel = nil
 
 	m.logger.Debug("disconnected")
 	return nil
 }
 
 func (m *Manager) cleanupVoiceChannel() {
-	if m.currentChannel == nil {
+	if m.CurrentChannel() == nil {
 		return
 	}
 
 	m.logger.Debug(
 		"disconnecting bot from voice channel",
-		zap.String("channel", m.currentChannel.ChannelID),
+		zap.Stringp("channel", m.CurrentChannelID()),
 	)
-	err := m.currentChannel.Disconnect()
+	err := m.CurrentChannel().Disconnect()
 	if err != nil {
 		m.logger.Warn(
 			"could not disconnect from voice channel",
-			zap.String("channel", m.currentChannel.ChannelID),
+			zap.String("channel", m.CurrentChannel().ChannelID),
 			zap.Error(err),
 		)
 	}
-}
-
-func (m *Manager) CurrentChannelID() *string {
-	m.RLock()
-	defer m.RUnlock()
-
-	if m.currentChannel == nil {
-		return nil
-	}
-	v := m.currentChannel.ChannelID
-	return &v
 }
